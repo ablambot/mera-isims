@@ -42,3 +42,7 @@ PipelinePro is a compact sales tracking dashboard for visualizing revenue trends
 The dashboard now follows the supplied MERA documentation rather than a generic CRM model. Navigation and terminology are centered on **Sales, Inventory, Job Orders, Production, Back Jobs, Reports, and role-aware management access**. The overview now prioritizes monthly sales from TikTok Shop and Shopee, low-stock alerts with a manual review action, active Job Orders, QC back jobs, production flow from Cutting through Finishing, Job Order timing, and sewer productivity based on recorded output and back jobs.
 
 The low-stock action intentionally alerts and recommends review only; it does not automatically generate or submit a Job Order. The interface remains a monitoring and record-keeping surface for MERA staff, matching the PDF delimitations around manual production, no raw-material procurement, no purchasing automation, and no forecasting or AI features.
+
+## Workflow expansion — production tracking and inventory editing
+
+The Production navigation now reveals a detailed Job Order workspace with order selection, completion quantities, due dates, live status, operator notes, and a five-stage timeline covering Cutting, Sewing, Trimming, Quality Control, and Finishing. The Inventory action now opens a modal for finished-goods review, highlights items at or below minimum, allows direct stock-level edits, and saves or cancels changes locally. The modal keeps the PDF boundary intact: it recommends manual Job Order creation rather than auto-submitting production.

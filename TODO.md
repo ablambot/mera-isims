@@ -10,3 +10,11 @@
 - Include persistent navigation for Overview, Sales, Inventory, Job Orders, Production, Back Jobs, and Reports.
 - Keep the visual system focused on black and white with restrained soft gradients, rounded corners, subtle glassmorphism, and compact operator-first information density.
 - Preserve the MERA operational workflow cues from Job Order through finished inventory, informed by the supplied workflow reference.
+
+
+## New workflow criteria
+
+- The Production navigation opens a detailed Job Order tracking view with selectable orders, completion quantities, due dates, live status, operator notes, and a stage timeline from Cutting to Finishing.
+- The Inventory action opens an interactive modal that lists finished-goods SKUs, variants, locations, current stock, minimum stock, and low-stock status.
+- Inventory stock quantities can be edited directly in the modal and saved or canceled without leaving the dashboard.
+- Inventory low-stock messaging recommends manual Job Order creation and does not auto-submit production.

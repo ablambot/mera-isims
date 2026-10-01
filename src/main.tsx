@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
 
@@ -125,7 +125,35 @@ function InventoryModal({ items, setItems, onClose, notify }: { items: Inventory
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><section className="inventory-modal" role="dialog" aria-modal="true" aria-labelledby="inventory-title"><div className="modal-head"><div><p className="eyebrow">Inventory / quick update</p><h2 id="inventory-title">Finished goods stock</h2><p>Review minimum levels and update warehouse or packing records directly.</p></div><button className="icon-button" aria-label="Close inventory modal" onClick={onClose}>×</button></div><div className="inventory-alert"><span className="alert-mark">!</span><div><strong>{lowStockCount} items at or below minimum</strong><span>Review the recommendation, then create a Job Order manually if production is needed.</span></div></div><div className="inventory-table"><div className="inventory-table-head"><span>SKU / product</span><span>Location</span><span>Stock / minimum</span></div>{items.map((item) => { const isLow = drafts[item.id] <= item.minimum; return <div className={`inventory-row ${isLow ? 'low-stock' : ''}`} key={item.id}><div className="inventory-product"><span className={`product-swatch swatch-${item.tone}`} /><div><strong>{item.product}</strong><span>{item.variant} · {item.sku}</span></div></div><span className="inventory-location">{item.location}</span><div className="stock-editor"><label><span className="sr-only">Current stock for {item.product}</span><input type="number" min="0" value={drafts[item.id]} onChange={(event) => updateDraft(item.id, Number(event.target.value))} /></label><span>/ {item.minimum} pcs</span>{isLow && <em>Low</em>}</div></div>})}</div><div className="modal-foot"><span>Changes are saved to the current MERA workspace only.</span><div><button className="button button-secondary" onClick={onClose}>Cancel</button><button className="button button-dark" onClick={saveInventory}><Icon name="check" size={15} />Save stock levels</button></div></div></section></div>
 }
 
-function App() {
+type AuthUser = { openId: string; name: string; email: string; role: string; platforms?: string[] }
+
+function userInitials(name: string) {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'MI'
+}
+
+function LoginScreen({ error, onLogin }: { error?: string; onLogin: () => void }) {
+  return <main className="auth-shell"><div className="auth-orbit auth-orbit-one" /><div className="auth-orbit auth-orbit-two" /><section className="auth-card"><div className="auth-brand"><LogoMark /><div><strong>MERA <span>ISIMS</span></strong><small>SALES + INVENTORY MONITORING</small></div></div><div className="auth-rule" /><div className="auth-copy"><p className="eyebrow">MERA workspace / secure access</p><h1>Keep every handoff <i>in motion.</i></h1><p>Sign in with your Manus account to access sales, inventory, Job Orders, production tracking, and back-job records.</p></div>{error && <div className="auth-error" role="alert"><strong>Unable to sign you in</strong><span>{error}</span></div>}<button className="auth-login-button" onClick={onLogin}><span className="manus-mark">M</span><span>Continue with Manus</span><Icon name="arrow" size={16} /></button><p className="auth-footnote">Access is protected by MERA’s workspace permissions. No passwords are stored in this app.</p></section><footer className="auth-footer"><span>MERA / ISIMS</span><span>Monochrome operations workspace</span></footer></main>
+}
+
+function AuthGate() {
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    fetch('/api/auth/me', { credentials: 'include' }).then(async (response) => {
+      const payload = await response.json().catch(() => ({}))
+      if (response.ok && payload.user) setUser(payload.user)
+      else if (response.status >= 500) setError(payload.error || 'Authentication service is unavailable.')
+    }).catch(() => setError('Authentication service is unavailable.')).finally(() => setLoading(false))
+  }, [])
+  const login = () => { window.location.assign('/api/auth/login') }
+  const logout = () => { window.location.assign('/api/auth/logout') }
+  if (loading) return <main className="auth-loading"><LogoMark /><span>Loading MERA workspace</span></main>
+  if (!user) return <LoginScreen error={error || new URLSearchParams(window.location.search).get('authError') || undefined} onLogin={login} />
+  return <Dashboard user={user} onLogout={logout} />
+}
+
+function Dashboard({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
   const [activeNav, setActiveNav] = useState('Overview')
   const [channel, setChannel] = useState<Channel>('ALL')
   const [query, setQuery] = useState('')
@@ -150,9 +178,9 @@ function App() {
   }
 
   return <div className="app-shell">
-    <aside className="sidebar"><div className="brand-lockup"><LogoMark /><div><div className="brand-name">MERA <span>ISIMS</span></div><div className="brand-subtitle">SALES + INVENTORY MONITORING</div></div></div><div className="sidebar-rule" /><div className="rail-label">Workspace</div><nav className="main-nav" aria-label="Primary navigation">{navItems.map((item) => <button key={item.label} className={`nav-item ${activeNav === item.label ? 'active' : ''}`} onClick={() => { setActiveNav(item.label); if (item.label === 'Inventory') setInventoryOpen(true); notify(`${item.label} view selected`) }}><Icon name={item.icon} size={17} /><span>{item.label}</span>{item.badge && <span className="nav-badge">{item.badge}</span>}</button>)}</nav><div className="sidebar-lower"><div className="rail-label">System</div><button className="nav-item" onClick={() => notify('Settings are ready for your workspace')}><Icon name="settings" size={17} /><span>Settings</span></button><div className="sync-card"><div className="sync-icon"><Icon name="check" size={14} /></div><div><p>Records synced</p><span>Last update 2 min ago</span></div><span className="live-dot" /></div></div><div className="sidebar-footer"><div className="profile"><Avatar initials="AL" tone="graphite" /><div><strong>Avery Lane</strong><span>Management access</span></div></div><button className="icon-button small" aria-label="Open account menu" onClick={() => notify('Account menu opened')}><Icon name="more" size={17} /></button></div></aside>
+    <aside className="sidebar"><div className="brand-lockup"><LogoMark /><div><div className="brand-name">MERA <span>ISIMS</span></div><div className="brand-subtitle">SALES + INVENTORY MONITORING</div></div></div><div className="sidebar-rule" /><div className="rail-label">Workspace</div><nav className="main-nav" aria-label="Primary navigation">{navItems.map((item) => <button key={item.label} className={`nav-item ${activeNav === item.label ? 'active' : ''}`} onClick={() => { setActiveNav(item.label); if (item.label === 'Inventory') setInventoryOpen(true); notify(`${item.label} view selected`) }}><Icon name={item.icon} size={17} /><span>{item.label}</span>{item.badge && <span className="nav-badge">{item.badge}</span>}</button>)}</nav><div className="sidebar-lower"><div className="rail-label">System</div><button className="nav-item" onClick={() => notify('Settings are ready for your workspace')}><Icon name="settings" size={17} /><span>Settings</span></button><div className="sync-card"><div className="sync-icon"><Icon name="check" size={14} /></div><div><p>Records synced</p><span>Last update 2 min ago</span></div><span className="live-dot" /></div></div><div className="sidebar-footer"><div className="profile"><Avatar initials={userInitials(user.name)} tone="graphite" /><div><strong>{user.name}</strong><span>{user.role === 'management' ? 'Management access' : 'Authenticated operator'}</span></div></div><button className="icon-button small" aria-label="Sign out" onClick={onLogout}><Icon name="arrow" size={15} /></button></div></aside>
 
-    <main className="main-content"><header className="topbar"><div className="breadcrumb"><span>MERA ISIMS</span><Icon name="chevron" size={13} /><strong>{activeNav}</strong></div><div className="topbar-actions"><label className="search-box"><Icon name="search" size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search orders, products..." aria-label="Search orders, products" /><kbd>⌘ K</kbd></label><button className="icon-button notification-button" aria-label="Show alerts" onClick={() => setShowNotifications((value) => !value)}><Icon name="bell" size={17} /><span className="notification-dot" /></button><button className="avatar-button" aria-label="Open profile menu" onClick={() => notify('Profile menu opened')}><Avatar initials="AL" tone="graphite" /></button></div>{showNotifications && <div className="notification-popover"><p className="eyebrow">Inventory alert</p><strong>3 finished goods are at minimum stock</strong><span>Review and manually create a Job Order.</span></div>}</header>
+    <main className="main-content"><header className="topbar"><div className="breadcrumb"><span>MERA ISIMS</span><Icon name="chevron" size={13} /><strong>{activeNav}</strong></div><div className="topbar-actions"><label className="search-box"><Icon name="search" size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search orders, products..." aria-label="Search orders, products" /><kbd>⌘ K</kbd></label><button className="icon-button notification-button" aria-label="Show alerts" onClick={() => setShowNotifications((value) => !value)}><Icon name="bell" size={17} /><span className="notification-dot" /></button><button className="avatar-button" aria-label="Sign out" onClick={onLogout}><Avatar initials={userInitials(user.name)} tone="graphite" /></button></div>{showNotifications && <div className="notification-popover"><p className="eyebrow">Inventory alert</p><strong>3 finished goods are at minimum stock</strong><span>Review and manually create a Job Order.</span></div>}</header>
 
       <div className="content-wrap"><section className="hero-row"><div><div className="hero-kicker"><span className="status-pill"><span className="live-dot" />MERA live records</span><span className="mono-note">/ OCT 01, 2026</span></div><h1>Good morning, Avery<span className="soft-dot">.</span></h1><p className="hero-subtitle">Sales are moving. Here’s what needs attention across MERA today.</p></div><div className="hero-actions"><button className="button button-secondary" onClick={exportSales}><Icon name="download" size={15} />Sales report</button><button className="button button-dark" onClick={() => notify('New Job Order draft opened')}><Icon name="plus" size={16} />New Job Order</button></div></section>
 
@@ -167,5 +195,5 @@ function App() {
   </div>
 }
 
-export default App
-createRoot(document.getElementById('root')!).render(<App />)
+export default Dashboard
+createRoot(document.getElementById('root')!).render(<AuthGate />)

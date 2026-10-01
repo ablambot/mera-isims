@@ -46,3 +46,7 @@ The low-stock action intentionally alerts and recommends review only; it does no
 ## Workflow expansion — production tracking and inventory editing
 
 The Production navigation now reveals a detailed Job Order workspace with order selection, completion quantities, due dates, live status, operator notes, and a five-stage timeline covering Cutting, Sewing, Trimming, Quality Control, and Finishing. The Inventory action now opens a modal for finished-goods review, highlights items at or below minimum, allows direct stock-level edits, and saves or cancels changes locally. The modal keeps the PDF boundary intact: it recommends manual Job Order creation rather than auto-submitting production.
+
+## Authentication — Manus OAuth
+
+MERA ISIMS now uses the project-default Manus OAuth provider rather than a custom password store. A server-backed auth middleware starts the OAuth flow, binds the callback to a short-lived nonce cookie, exchanges the authorization code server-side, resolves the Manus identity, signs a seven-day HS256 application session in the required `webdev_app_session` cookie, and exposes `/api/auth/me` and logout routes. The browser renders the dashboard only after the authenticated identity is resolved; the dashboard profile controls sign out. The project’s Webdev server capability is enabled and its Docker deployment health path is `/_app/health`.

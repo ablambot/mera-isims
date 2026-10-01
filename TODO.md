@@ -18,3 +18,13 @@
 - The Inventory action opens an interactive modal that lists finished-goods SKUs, variants, locations, current stock, minimum stock, and low-stock status.
 - Inventory stock quantities can be edited directly in the modal and saved or canceled without leaving the dashboard.
 - Inventory low-stock messaging recommends manual Job Order creation and does not auto-submit production.
+
+## Authentication criteria
+
+- Logged-out users see a MERA-branded login screen with a Continue with Manus action.
+- The OAuth authorization code exchange and identity lookup occur server-side.
+- OAuth state is bound to a short-lived nonce cookie and invalid or expired state fails closed.
+- The application uses the required `webdev_app_session` cookie with cross-site Preview-compatible cookie attributes.
+- The dashboard is hidden until `/api/auth/me` confirms an authenticated Manus identity.
+- Authenticated users can sign out from the dashboard profile controls.
+- The server deployment exposes an unauthenticated `/_app/health` success endpoint.

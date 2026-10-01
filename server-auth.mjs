@@ -1,16 +1,11 @@
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 
 const SESSION_COOKIE = 'webdev_app_session'
-const STATE_COOKIE = 'mera_oauth_state'
 const SESSION_MAX_AGE = 60 * 60 * 24 * 7
+const loginAttempts = new Map()
 
-function base64UrlEncode(value) {
-  return Buffer.from(value).toString('base64url')
-}
-
-function base64UrlDecode(value) {
-  return Buffer.from(value, 'base64url').toString('utf8')
-}
+function base64UrlEncode(value) { return Buffer.from(value).toString('base64url') }
+function base64UrlDecode(value) { return Buffer.from(value, 'base64url').toString('utf8') }
 
 function signJwt(payload, secret) {
   const header = base64UrlEncode(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))
@@ -33,11 +28,9 @@ function verifyJwt(token, secret) {
     if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return null
     if (typeof payload.exp === 'number' && payload.exp < Math.floor(Date.now() / 1000)) return null
     if (process.env.MANUS_PROJECT_ID && payload.appId !== process.env.MANUS_PROJECT_ID) return null
-    if (!payload.openId) return null
+    if (payload.authProvider !== 'mera' || !payload.username) return null
     return payload
-  } catch {
-    return null
-  }
+  } catch { return null }
 }
 
 function parseCookies(request) {
@@ -53,105 +46,72 @@ function isSecureRequest(request) {
   return forwardedProto === 'https' || request.headers.host?.includes('manus.computer') === true
 }
 
-function cookieHeader(name, value, maxAge, request, httpOnly = true) {
+function cookieHeader(name, value, maxAge, request) {
   const secure = isSecureRequest(request)
-  const attributes = [`${name}=${encodeURIComponent(value)}`, 'Path=/', `Max-Age=${maxAge}`, `SameSite=${secure ? 'None' : 'Lax'}`]
-  if (httpOnly) attributes.push('HttpOnly')
+  const attributes = [`${name}=${encodeURIComponent(value)}`, 'Path=/', `Max-Age=${maxAge}`, `SameSite=${secure ? 'None' : 'Lax'}`, 'HttpOnly']
   if (secure) attributes.push('Secure')
   return attributes.join('; ')
 }
 
 function sendJson(response, status, payload, extraHeaders = {}) {
-  const body = JSON.stringify(payload)
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...extraHeaders })
-  response.end(body)
+  response.end(JSON.stringify(payload))
 }
 
-function redirect(response, location, extraHeaders = {}) {
-  response.writeHead(302, { Location: location, 'Cache-Control': 'no-store', ...extraHeaders })
-  response.end()
+function constantTimeEqual(left, right) {
+  const leftHash = createHash('sha256').update(String(left ?? '')).digest()
+  const rightHash = createHash('sha256').update(String(right ?? '')).digest()
+  return timingSafeEqual(leftHash, rightHash)
 }
 
-function appOrigin(request) {
-  const proto = String(request.headers['x-forwarded-proto'] || 'http').split(',')[0].trim()
-  const host = String(request.headers['x-forwarded-host'] || request.headers.host || 'localhost:3000').split(',')[0].trim()
-  return `${proto}://${host}`
+function clientKey(request) {
+  return String(request.headers['x-forwarded-for'] || request.socket.remoteAddress || 'unknown').split(',')[0].trim()
 }
 
-function callbackUrl(request) {
-  return `${appOrigin(request)}/api/auth/callback`
+function isRateLimited(request) {
+  const now = Date.now()
+  const key = clientKey(request)
+  const recent = (loginAttempts.get(key) || []).filter((timestamp) => now - timestamp < 15 * 60 * 1000)
+  if (recent.length >= 8) { loginAttempts.set(key, recent); return true }
+  recent.push(now)
+  loginAttempts.set(key, recent)
+  return false
 }
 
-async function readJson(response) {
-  const text = await response.text()
-  try { return JSON.parse(text) } catch { return { error: text } }
-}
+function clearLoginAttempts(request) { loginAttempts.delete(clientKey(request)) }
 
-async function exchangeCode(code, redirectUri) {
-  const { MANUS_PROJECT_ID: clientId, MANUS_OAUTH_API_URL: apiUrl } = process.env
-  if (!clientId || !apiUrl || !process.env.MANUS_JWT_SECRET) throw new Error('Manus OAuth is not configured for this project')
-  const tokenResponse = await fetch(`${apiUrl.replace(/\/$/, '')}/webdev.v1.WebDevAuthPublicService/ExchangeToken`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ clientId, grantType: 'authorization_code', code, redirectUri }),
-  })
-  const tokenData = await readJson(tokenResponse)
-  if (!tokenResponse.ok || !tokenData.accessToken) throw new Error(tokenData.message || tokenData.error || 'OAuth token exchange failed')
-  const userResponse = await fetch(`${apiUrl.replace(/\/$/, '')}/webdev.v1.WebDevAuthPublicService/GetUserInfo`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokenData.accessToken}` },
-    body: JSON.stringify({ accessToken: tokenData.accessToken }),
-  })
-  const userData = await readJson(userResponse)
-  if (!userResponse.ok || !userData.openId) throw new Error(userData.message || userData.error || 'Unable to resolve Manus identity')
-  return userData
+async function readJsonBody(request) {
+  let body = ''
+  for await (const chunk of request) {
+    body += chunk
+    if (body.length > 16 * 1024) throw new Error('Request body is too large')
+  }
+  try { return JSON.parse(body || '{}') } catch { return null }
 }
 
 async function handleAuthRequest(request, response, url) {
-  const path = url.pathname
-  if (path === '/api/auth/login' && request.method === 'GET') {
-    const portalUrl = process.env.MANUS_OAUTH_PORTAL_URL
-    if (!portalUrl || !process.env.MANUS_PROJECT_ID) return sendJson(response, 503, { error: 'Manus OAuth is not configured' })
-    const nonce = randomBytes(24).toString('hex')
-    const redirectUri = callbackUrl(request)
-    const state = base64UrlEncode(JSON.stringify({ redirectUri, nonce }))
-    const portal = new URL(`${portalUrl.replace(/\/$/, '')}/app-auth`)
-    portal.searchParams.set('appId', process.env.MANUS_PROJECT_ID)
-    portal.searchParams.set('redirectUri', redirectUri)
-    portal.searchParams.set('state', state)
-    portal.searchParams.set('responseType', 'code')
-    return redirect(response, portal.toString(), { 'Set-Cookie': cookieHeader(STATE_COOKIE, nonce, 600, request) })
+  if (url.pathname === '/api/auth/login') {
+    if (request.method !== 'POST') return sendJson(response, 405, { error: 'Use POST to sign in' }, { Allow: 'POST' })
+    if (!process.env.MERA_LOGIN_USERNAME || !process.env.MERA_LOGIN_PASSWORD || !process.env.MANUS_JWT_SECRET || !process.env.MANUS_PROJECT_ID) return sendJson(response, 503, { error: 'MERA login is not configured' })
+    if (isRateLimited(request)) return sendJson(response, 429, { error: 'Too many login attempts. Try again later.' })
+    const credentials = await readJsonBody(request)
+    const username = typeof credentials?.username === 'string' ? credentials.username.trim() : ''
+    const password = typeof credentials?.password === 'string' ? credentials.password : ''
+    if (!username || !password || !constantTimeEqual(username, process.env.MERA_LOGIN_USERNAME) || !constantTimeEqual(password, process.env.MERA_LOGIN_PASSWORD)) return sendJson(response, 401, { error: 'Incorrect MERA username or password' })
+    clearLoginAttempts(request)
+    const now = Math.floor(Date.now() / 1000)
+    const session = signJwt({ appId: process.env.MANUS_PROJECT_ID, authProvider: 'mera', openId: `mera:${process.env.MERA_LOGIN_USERNAME}`, username: process.env.MERA_LOGIN_USERNAME, name: process.env.MERA_LOGIN_USERNAME, email: process.env.MERA_LOGIN_USERNAME.includes('@') ? process.env.MERA_LOGIN_USERNAME : '', role: 'management', iat: now, exp: now + SESSION_MAX_AGE }, process.env.MANUS_JWT_SECRET)
+    return sendJson(response, 200, { authenticated: true }, { 'Set-Cookie': cookieHeader(SESSION_COOKIE, session, SESSION_MAX_AGE, request) })
   }
 
-  if (path === '/api/auth/callback' && request.method === 'GET') {
-    const cookies = parseCookies(request)
-    const rawState = url.searchParams.get('state') || ''
-    const code = url.searchParams.get('code') || ''
-    const error = url.searchParams.get('error')
-    if (error) return redirect(response, `/?authError=${encodeURIComponent(error)}`, { 'Set-Cookie': cookieHeader(STATE_COOKIE, '', 0, request) })
-    let state
-    try { state = JSON.parse(base64UrlDecode(rawState)) } catch { state = null }
-    if (!state?.nonce || !state?.redirectUri || state.nonce !== cookies[STATE_COOKIE] || state.redirectUri !== callbackUrl(request) || !code) {
-      return sendJson(response, 400, { error: 'Invalid or expired OAuth state' }, { 'Set-Cookie': cookieHeader(STATE_COOKIE, '', 0, request) })
-    }
-    try {
-      const user = await exchangeCode(code, state.redirectUri)
-      const now = Math.floor(Date.now() / 1000)
-      const session = signJwt({ appId: process.env.MANUS_PROJECT_ID, openId: user.openId, name: user.name || user.email || 'MERA operator', email: user.email || '', platforms: user.platforms || [], role: 'management', iat: now, exp: now + SESSION_MAX_AGE }, process.env.MANUS_JWT_SECRET)
-      return redirect(response, '/', { 'Set-Cookie': [cookieHeader(SESSION_COOKIE, session, SESSION_MAX_AGE, request), cookieHeader(STATE_COOKIE, '', 0, request)] })
-    } catch (authError) {
-      return redirect(response, `/?authError=${encodeURIComponent(authError instanceof Error ? authError.message : 'Login failed')}`, { 'Set-Cookie': cookieHeader(STATE_COOKIE, '', 0, request) })
-    }
-  }
-
-  if (path === '/api/auth/me' && request.method === 'GET') {
+  if (url.pathname === '/api/auth/me' && request.method === 'GET') {
     const session = verifyJwt(parseCookies(request)[SESSION_COOKIE], process.env.MANUS_JWT_SECRET)
     if (!session) return sendJson(response, 401, { authenticated: false })
-    return sendJson(response, 200, { authenticated: true, user: { openId: session.openId, name: session.name, email: session.email, role: session.role, platforms: session.platforms } })
+    return sendJson(response, 200, { authenticated: true, user: { openId: session.openId, name: session.name, email: session.email, username: session.username, role: session.role } })
   }
 
-  if (path === '/api/auth/logout' && (request.method === 'GET' || request.method === 'POST')) {
-    return redirect(response, '/', { 'Set-Cookie': cookieHeader(SESSION_COOKIE, '', 0, request) })
+  if (url.pathname === '/api/auth/logout' && (request.method === 'GET' || request.method === 'POST')) {
+    return sendJson(response, 200, { authenticated: false }, { 'Set-Cookie': cookieHeader(SESSION_COOKIE, '', 0, request) })
   }
 
   return false
@@ -164,5 +124,3 @@ export function createAuthMiddleware() {
     Promise.resolve(handleAuthRequest(request, response, url)).catch((error) => sendJson(response, 500, { error: error instanceof Error ? error.message : 'Authentication error' }))
   }
 }
-
-export { handleAuthRequest, verifyJwt }

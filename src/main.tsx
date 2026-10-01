@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
 
@@ -131,8 +131,12 @@ function userInitials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || 'MI'
 }
 
-function LoginScreen({ error, onLogin }: { error?: string; onLogin: () => void }) {
-  return <main className="auth-shell"><div className="auth-orbit auth-orbit-one" /><div className="auth-orbit auth-orbit-two" /><section className="auth-card"><div className="auth-brand"><LogoMark /><div><strong>MERA <span>ISIMS</span></strong><small>SALES + INVENTORY MONITORING</small></div></div><div className="auth-rule" /><div className="auth-copy"><p className="eyebrow">MERA workspace / secure access</p><h1>Keep every handoff <i>in motion.</i></h1><p>Sign in with your Manus account to access sales, inventory, Job Orders, production tracking, and back-job records.</p></div>{error && <div className="auth-error" role="alert"><strong>Unable to sign you in</strong><span>{error}</span></div>}<button className="auth-login-button" onClick={onLogin}><span className="manus-mark">M</span><span>Continue with Manus</span><Icon name="arrow" size={16} /></button><p className="auth-footnote">Access is protected by MERA’s workspace permissions. No passwords are stored in this app.</p></section><footer className="auth-footer"><span>MERA / ISIMS</span><span>Monochrome operations workspace</span></footer></main>
+function LoginScreen({ error, onLogin }: { error?: string; onLogin: (username: string, password: string) => Promise<void> }) {
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); setSubmitting(true); await onLogin(username, password); setSubmitting(false) }
+  return <main className="auth-shell"><div className="auth-orbit auth-orbit-one" /><div className="auth-orbit auth-orbit-two" /><section className="auth-card"><div className="auth-brand"><LogoMark /><div><strong>MERA <span>ISIMS</span></strong><small>SALES + INVENTORY MONITORING</small></div></div><div className="auth-rule" /><div className="auth-copy"><p className="eyebrow">MERA workspace / secure access</p><h1>Keep every handoff <i>in motion.</i></h1><p>Sign in to the MERA operations workspace for sales, inventory, Job Orders, production tracking, and back-job records.</p></div>{error && <div className="auth-error" role="alert"><strong>Unable to sign you in</strong><span>{error}</span></div>}<form className="auth-form" onSubmit={submit}><label>MERA username<input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Enter your username" required /></label><label>MERA password<input autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" required /></label><button className="auth-login-button" disabled={submitting} type="submit"><span className="manus-mark">M</span><span>{submitting ? 'Checking MERA access...' : 'Sign in to MERA'}</span><Icon name="arrow" size={16} /></button></form><p className="auth-footnote">MERA-only access. Credentials are verified server-side and never stored in the browser.</p></section><footer className="auth-footer"><span>MERA / ISIMS</span><span>Monochrome operations workspace</span></footer></main>
 }
 
 function AuthGate() {
@@ -146,8 +150,16 @@ function AuthGate() {
       else if (response.status >= 500) setError(payload.error || 'Authentication service is unavailable.')
     }).catch(() => setError('Authentication service is unavailable.')).finally(() => setLoading(false))
   }, [])
-  const login = () => { window.location.assign('/api/auth/login') }
-  const logout = () => { window.location.assign('/api/auth/logout') }
+  const login = async (username: string, password: string) => {
+    setError('')
+    try {
+      const response = await fetch('/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ username, password }) })
+      const payload = await response.json().catch(() => ({}))
+      if (!response.ok) { setError(payload.error || 'Incorrect MERA username or password'); return }
+      window.location.assign('/')
+    } catch { setError('Authentication service is unavailable.') }
+  }
+  const logout = async () => { await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); window.location.assign('/') }
   if (loading) return <main className="auth-loading"><LogoMark /><span>Loading MERA workspace</span></main>
   if (!user) return <LoginScreen error={error || new URLSearchParams(window.location.search).get('authError') || undefined} onLogin={login} />
   return <Dashboard user={user} onLogout={logout} />

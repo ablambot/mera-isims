@@ -21,10 +21,10 @@
 
 ## Authentication criteria
 
-- Logged-out users see a MERA-branded login screen with a Continue with Manus action.
-- The OAuth authorization code exchange and identity lookup occur server-side.
-- OAuth state is bound to a short-lived nonce cookie and invalid or expired state fails closed.
+- Logged-out users see a MERA-only login screen with username and password fields.
+- The initial MERA username and password are stored as protected runtime secrets, not in source code or browser storage.
+- Credential checks occur server-side with constant-time comparisons and bounded login-attempt throttling.
 - The application uses the required `webdev_app_session` cookie with cross-site Preview-compatible cookie attributes.
-- The dashboard is hidden until `/api/auth/me` confirms an authenticated Manus identity.
+- The dashboard is hidden until `/api/auth/me` confirms an authenticated MERA identity.
 - Authenticated users can sign out from the dashboard profile controls.
 - The server deployment exposes an unauthenticated `/_app/health` success endpoint.

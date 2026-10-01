@@ -36,3 +36,9 @@ PipelinePro is a compact sales tracking dashboard for visualizing revenue trends
 - No authentication or database is required for this dashboard prototype; the managed server/database features remain off.
 - The layout must remain useful at desktop and tablet widths, collapsing the rail and table gracefully on small screens.
 - Do not add decorative artwork beyond the supplied workflow reference cues; this is an internal tool and information density is the priority.
+
+## PDF-driven scope revision — MERA ISIMS
+
+The dashboard now follows the supplied MERA documentation rather than a generic CRM model. Navigation and terminology are centered on **Sales, Inventory, Job Orders, Production, Back Jobs, Reports, and role-aware management access**. The overview now prioritizes monthly sales from TikTok Shop and Shopee, low-stock alerts with a manual review action, active Job Orders, QC back jobs, production flow from Cutting through Finishing, Job Order timing, and sewer productivity based on recorded output and back jobs.
+
+The low-stock action intentionally alerts and recommends review only; it does not automatically generate or submit a Job Order. The interface remains a monitoring and record-keeping surface for MERA staff, matching the PDF delimitations around manual production, no raw-material procurement, no purchasing automation, and no forecasting or AI features.
